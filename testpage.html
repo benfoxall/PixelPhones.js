@@ -2,12 +2,53 @@
 <head>
   <title>PixelPhones.js</title>
   <link rel="stylesheet" type="text/css" href="main.css">
+  <style type="text/css">
+    .pixel{
+      border:1px solid #ddd;
+      width:70px;
+      height:100px;
+      margin:2em;
+      display: inline-block;
+    }
+    .pixel.on{
+      background: #000;
+    }
+  </style>
 </head>
 <body>
   <h1>Test Page</h1>
+
+  <div data-encode="01010101" class="pixel"></div>
+  <div data-encode="00001111" class="pixel"></div>
+  <div data-encode="11001100" class="pixel"></div>
+  <div data-encode="10101010" class="pixel"></div>
+
   <script type="text/javascript" src="common.js"></script>
   <script type="text/javascript">
-  
+    var pixels = [].map.call(document.querySelectorAll('.pixel'), function(element){
+      return {
+        element: element,
+        data: element.dataset.encode.split('')
+                      .map(function(d){return d == '1'})
+      }
+    })
+
+
+    function update(){
+      requestAnimationFrame(update);
+
+      var i = Math.floor(((+new Date)/1000)%8);
+
+      pixels.forEach(function(pixel){
+        var fn = pixel.data[i] ? 'add' : 'remove'
+
+        pixel.element.classList[fn]('on');
+      })
+
+    }
+
+    update();
+
   </script>
 </body>
 </html>
