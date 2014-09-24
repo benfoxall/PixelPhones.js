@@ -5,9 +5,64 @@
 </head>
 <body>
   <h1>Recogniser</h1>
+
+  <video autoplay></video>
+  <canvas></canvas>
   <script type="text/javascript" src="common.js"></script>
   <script type="text/javascript">
-  
+    navigator.getUserMedia = ( navigator.getUserMedia ||
+                               navigator.webkitGetUserMedia ||
+                               navigator.mozGetUserMedia ||
+                               navigator.msGetUserMedia);
+
+
+    var video     = document.querySelector('video'),
+        canvas    = document.querySelector('canvas'),
+        offcanvas = document.createElement('canvas');
+
+    video.onloadedmetadata = initialise;
+
+    navigator.getUserMedia(
+      {video:true, audio:false}, 
+      function(localMediaStream){
+        video.src = window.URL.createObjectURL(localMediaStream);
+      },
+      console.error.bind(console)
+    );
+
+
+    function initialise(){
+      canvas.width  = offcanvas.width  = video.videoWidth;
+      canvas.height = offcanvas.height = video.videoHeight;
+
+      render()
+    }
+
+    var last;
+
+    function render(){
+      requestAnimationFrame(render);
+
+      // pull a frame from the video (could be offscreen)
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+      var imageData      = ctx.getImageData(0,0, canvas.width, canvas.height);
+      var imageDataClone = ctx.getImageData(0,0, canvas.width, canvas.height);
+
+      if(last){
+        for (var i = imageData.data.length - 1; i >= 0; i--) {
+          if(i % 4 < 3){
+            imageData.data[i] = (imageData.data[i] - last.data[i])+150;
+          }
+        }
+
+        ctx.putImageData(imageData, 0,0)
+      }
+
+      last = imageDataClone;
+
+    }
+
   </script>
 </body>
 </html>
