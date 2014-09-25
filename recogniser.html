@@ -10,6 +10,18 @@
   <canvas></canvas>
   <script type="text/javascript" src="common.js"></script>
   <script type="text/javascript">
+
+    var stats = new Stats();
+    stats.setMode(0);
+
+    stats.domElement.style.position = 'absolute';
+    stats.domElement.style.right = '0px';
+    stats.domElement.style.top = '0px';
+
+    document.body.appendChild( stats.domElement );
+
+
+
     navigator.getUserMedia = ( navigator.getUserMedia ||
                                navigator.webkitGetUserMedia ||
                                navigator.mozGetUserMedia ||
@@ -40,8 +52,11 @@
 
     var last;
 
+    var stop;
     function render(){
+      if(stop) return;
       requestAnimationFrame(render);
+      stats.begin();
 
       // pull a frame from the video (could be offscreen)
       var ctx = canvas.getContext('2d');
@@ -50,18 +65,101 @@
       var imageDataClone = ctx.getImageData(0,0, canvas.width, canvas.height);
 
       if(last){
-        for (var i = imageData.data.length - 1; i >= 0; i--) {
-          if(i % 4 < 3){
-            imageData.data[i] = (imageData.data[i] - last.data[i])+150;
+        var l = imageData.data.length, v, c;
+        for (var i = 0; i < l; i += 4){
+          // just red for now
+          v = imageData.data[i] - last.data[i];
+          // c = v < -100 ? 0 : 
+          //     v >  100 ? 255 :
+          //     155;
+
+          // imageData.data[i] = imageData.data[i+1] = imageData.data[i+2] = c;
+          imageData.data[i]   = v < -100 ? 255 : 0; // off -> on
+          imageData.data[i+1] = v > 100 ? 255 : 0;  // on -> off
+          imageData.data[i+2] = 0;
+        }
+
+
+        // on
+        var blobs_on  = FindBlobs(imageData,0);
+        
+        // off
+        // var blobs_off = FindBlobs(imageData,0);
+  
+        var i,j, i_l = blobs_on.length, j_l = blobs_on[0].length;
+
+        var max = 0;
+
+        for(i = 0; i < i_l; i++){
+          for(j = 0; j < j_l; j++){
+            if(blobs_on[i][j]){
+              max = Math.max(max, blobs_on[i][j])
+              // (i + (j*i_l)) + 2
+              var idx = (i*4) + (j*j_l*4)
+              imageData.data[idx + 2] = 255;
+            }
           }
         }
+
+        console.log("MAX", max)
+
+        // console.log("on", 
+        //   blobs_on.reduce(function(a,b){return a.concat(b)},[])
+
+        // )
+
+        // // console.log(Math.max.apply(null, blobs.reduce(fu)))
+
+        // all = blobs.reduce(function(a,b){return a.concat(b)},[])
+        // var max = all.reduce(function(memo, item){return Math.max(memo, item)},0)
+
+        // console.log("--> ", max)
+
+        iii = imageData;
 
         ctx.putImageData(imageData, 0,0)
       }
 
       last = imageDataClone;
 
+
+      stats.end();
     }
+
+    function clamp(n){
+      if(n < 0) return 0;
+      if(n > 255) return 255;
+      return n
+    }
+
+
+function ColorTheBlobs(dst,blobs,colors){
+    var xSize = dst.width,
+        ySize = dst.height,
+        dstPixels = dst.data,
+        x, y, pos;
+
+    var label, color, nColors = colors.length;
+
+    for(y=0; y<ySize; y++){
+        for(x=0; x<xSize; x++){
+            pos = (y*xSize+x)*4;
+
+            label = blobs[y][x];
+
+            if( label !== 0 ){
+                color = colors[ label % nColors ];
+                dstPixels[ pos+0 ] = color[0];
+                dstPixels[ pos+1 ] = color[1];
+                dstPixels[ pos+2 ] = color[2];
+                dstPixels[ pos+3 ] = color[3];
+            }else{
+                dstPixels[ pos+3 ] = 0;
+            }
+        }
+    }
+
+}
 
   </script>
 </body>
