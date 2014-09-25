@@ -18,29 +18,27 @@
 <body>
   <h1>Test Page</h1>
 
-  <div data-encode="01010101" class="pixel"></div>
-  <div data-encode="00001111" class="pixel"></div>
-  <div data-encode="11001100" class="pixel"></div>
-  <div data-encode="10101010" class="pixel"></div>
+  <div data-encode="42" class="pixel"></div>
+  <div data-encode="150" class="pixel"></div>
+  <div data-encode="500" class="pixel"></div>
+  <div data-encode="1" class="pixel"></div>
 
   <script type="text/javascript" src="common.js"></script>
   <script type="text/javascript">
     var pixels = [].map.call(document.querySelectorAll('.pixel'), function(element){
       return {
         element: element,
-        data: element.dataset.encode.split('')
-                      .map(function(d){return d == '1'})
+        pulser: PP.pulser(parseInt(element.dataset.encode, 10))
       }
     })
-
 
     function update(){
       requestAnimationFrame(update);
 
-      var i = Math.floor(((+new Date)/1000)%8);
+      var t = + new Date;
 
       pixels.forEach(function(pixel){
-        var fn = pixel.data[i] ? 'add' : 'remove'
+        var fn = pixel.pulser(t) ? 'add' : 'remove'
 
         pixel.element.classList[fn]('on');
       })
