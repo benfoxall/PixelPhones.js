@@ -5,6 +5,7 @@
 </head>
 <body>
   <h1>Recogniser</h1>
+  <!-- <video src="test.webm" autoplay loop></video> -->
 
   <video autoplay></video>
   <canvas></canvas>
@@ -50,6 +51,10 @@
       render()
     }
 
+
+
+    var markers = [];
+
     var last;
 
     var stop;
@@ -74,9 +79,10 @@
           //     155;
 
           // imageData.data[i] = imageData.data[i+1] = imageData.data[i+2] = c;
-          imageData.data[i]   = v < -100 ? 255 : 0; // off -> on
-          imageData.data[i+1] = v > 100 ? 255 : 0;  // on -> off
+          imageData.data[i]   = v < -125 ? 255 : 0; // off -> on
+          imageData.data[i+1] = v > 125 ? 255 : 0;  // on -> off
           imageData.data[i+2] = 0;
+          // imageData.data[i+3] = 100;
         }
 
 
@@ -84,40 +90,79 @@
         var blobs_on  = FindBlobs(imageData,0);
         
         // off
-        // var blobs_off = FindBlobs(imageData,0);
+        var blobs_off = FindBlobs(imageData,1);
   
-        var i,j, i_l = blobs_on.length, j_l = blobs_on[0].length;
+        var i,j, i_l = blobs_on.length, j_l = blobs_on[0].length, idx,obj;
 
         var max = 0;
+
+        // work out the positions and weights
+        var totals = {};
 
         for(i = 0; i < i_l; i++){
           for(j = 0; j < j_l; j++){
             if(blobs_on[i][j]){
-              max = Math.max(max, blobs_on[i][j])
-              // (i + (j*i_l)) + 2
-              var idx = (i*4) + (j*j_l*4)
-              imageData.data[idx + 2] = 255;
+              obj = totals['on'+blobs_on[i][j]] = totals['on'+blobs_on[i][j]] || {
+                x:0,y:0,c:0,type:'on'
+              };
+
+              obj.c++;
+              obj.x+=j;
+              obj.y+=i;
+
+              // max = Math.max(max, blobs_on[i][j])
+              // idx = (j*4) + (i*j_l*4);
+              // imageData.data[idx + 2] = 255;
+            }
+
+            if(blobs_off[i][j]){
+              obj = totals['off'+blobs_off[i][j]] = totals['off'+blobs_off[i][j]] || {
+                x:0,y:0,c:0,type:'off'
+              };
+
+              obj.c++;
+              obj.x+=j;
+              obj.y+=i;
+
+              max = Math.max(max, blobs_off[i][j])
+              // idx = (j*4) + (i*j_l*4);
+              // imageData.data[idx + 2] = 255;
             }
           }
         }
 
         console.log("MAX", max)
+        if(max){
+          console.log(totals);
+          Object.keys(totals)
+            .forEach(function(_t){
+              var t = totals[_t];
+              markers.push({
+                x: t.x/t.c,
+                y: t.y/t.c,
+                r: Math.sqrt(t.c/Math.PI),
+                ttl: 10,
+                type: t.type
+              })
+            })
+        }
 
-        // console.log("on", 
-        //   blobs_on.reduce(function(a,b){return a.concat(b)},[])
-
-        // )
-
-        // // console.log(Math.max.apply(null, blobs.reduce(fu)))
-
-        // all = blobs.reduce(function(a,b){return a.concat(b)},[])
-        // var max = all.reduce(function(memo, item){return Math.max(memo, item)},0)
-
-        // console.log("--> ", max)
-
-        iii = imageData;
 
         ctx.putImageData(imageData, 0,0)
+
+        markers.forEach(function(m){
+          m.ttl--;
+          ctx.fillStyle = m.type == 'on' ? 
+              'rgba(255,0,0,'+(m.ttl/10)+')' : 
+              'rgba(0,255,0,'+(m.ttl/10)+')' ;
+          ctx.beginPath();
+          ctx.arc(m.x,m.y,m.r,0,2*Math.PI)
+          ctx.fill()
+        })
+
+        markers = markers.filter(function(m){
+          return m.ttl>0
+        })
       }
 
       last = imageDataClone;
