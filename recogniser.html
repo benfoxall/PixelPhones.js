@@ -5,10 +5,11 @@
 </head>
 <body>
   <h1>Recogniser</h1>
-  <!-- <video src="test.webm" autoplay loop></video> -->
+  <!-- <video src="dev-video/office-basic.webm" autoplay loxop muted></video> -->
 
-  <video autoplay></video>
+  <video autoplay loop muted></video>
   <canvas></canvas>
+  <script type="text/javascript" src="cv.js"></script>
   <script type="text/javascript" src="common.js"></script>
   <script type="text/javascript">
 
@@ -35,6 +36,11 @@
 
     video.onloadedmetadata = initialise;
 
+    video.onended = function(){
+      stop = true;
+      consle.log("ended")
+    }
+    /*
     navigator.getUserMedia(
       {video:true, audio:false}, 
       function(localMediaStream){
@@ -42,6 +48,9 @@
       },
       console.error.bind(console)
     );
+    */
+
+    video.src="dev-video/office-basic.webm"
 
 
     function initialise(){
@@ -51,6 +60,11 @@
       render()
     }
 
+
+    var greyLast = new CV.Image(), grey = new CV.Image(), thresh = new CV.Image();
+
+
+    var cs = [], binary = [];
 
 
     var markers = [];
@@ -70,22 +84,49 @@
       var imageDataClone = ctx.getImageData(0,0, canvas.width, canvas.height);
 
       if(last){
-        var l = imageData.data.length, v, c;
-        for (var i = 0; i < l; i += 4){
-          // just red for now
-          v = imageData.data[i] - last.data[i];
-          // c = v < -100 ? 0 : 
-          //     v >  100 ? 255 :
-          //     155;
+        // var l = imageData.data.length, v, c;
+        // for (var i = 0; i < l; i += 4){
+        //   // just red for now
+        //   v = imageData.data[i] - last.data[i];
+        //   // c = v < -100 ? 0 : 
+        //   //     v >  100 ? 255 :
+        //   //     155;
 
-          // imageData.data[i] = imageData.data[i+1] = imageData.data[i+2] = c;
-          imageData.data[i]   = v < -125 ? 255 : 0; // off -> on
-          imageData.data[i+1] = v > 125 ? 255 : 0;  // on -> off
-          imageData.data[i+2] = 0;
-          // imageData.data[i+3] = 100;
-        }
+        //   // imageData.data[i] = imageData.data[i+1] = imageData.data[i+2] = c;
+        //   imageData.data[i]   = v < -125 ? 255 : 0; // off -> on
+        //   imageData.data[i+1] = v > 125 ? 255 : 0;  // on -> off
+        //   imageData.data[i+2] = 0;
+        //   // imageData.data[i+3] = 100;
+        // }
 
 
+
+
+        CV.grayscale(imageData, grey);
+
+
+        // find difference
+        var _src = greyLast.data, _dest = grey.data;
+        for (var i = _src.length - 1; i >= 0; i--) {
+          // _src[i] = clamp(l)
+          _dest[i] = clamp(_dest[i] - _src[i] + 125)
+        };
+
+
+
+        // CV.adaptiveThreshold(grey, thresh, 2, 7);
+
+        CV.threshold(grey, thresh, 200);
+
+        // imageData.data = grey.data;
+        
+        drawCVImage(thresh, imageData)
+
+        ctx.putImageData(imageData, 0,0)
+
+        cs.push(CV.findContours(thresh, binary));
+
+        /*
         // on
         var blobs_on  = FindBlobs(imageData,0);
         
@@ -163,9 +204,12 @@
         markers = markers.filter(function(m){
           return m.ttl>0
         })
+
+        */
       }
 
-      last = imageDataClone;
+      CV.grayscale(imageDataClone,greyLast);
+      last = true;
 
 
       stats.end();
@@ -204,6 +248,14 @@ function ColorTheBlobs(dst,blobs,colors){
         }
     }
 
+}
+
+
+function drawCVImage(imSrc, imDest){
+  var src = imSrc.data, dest = imDest.data;
+  for (var i = src.length - 1; i >= 0; i--) {
+    dest[i*4] = dest[(i*4)+1] = dest[(i*4)+2] = src[i];
+  }
 }
 
   </script>
