@@ -2,7 +2,7 @@
   var PP = {};
 
   // length of each pulse
-  PP.pulseLength = 1000;
+  PP.pulseLength = 1000 / 7; // from pixelphones
 
   // pause between messages
   PP.pulseDelay  = 2000;
@@ -13,10 +13,12 @@
 
   // TODO - add padding, '0' indistinguishable from '1'
   PP.pulser = function(id){
-    var pulses = manchester(binary(id)),
+    var pulses = manchester(padding(binary(id))),
         delay  = PP.pulseDelay,
         length = PP.pulseLength,
         span   = delay + (length * pulses.length);
+
+    console.log(id, pulses.map(function(d){return d? '*' : '_'}).join(''))
 
     return function(t){
       var n = t % span;
@@ -28,6 +30,14 @@
       }
 
     }
+  }
+
+
+  // todo - checksum
+
+  // add a leading 1, so starts with a pulse
+  function padding(digits){
+    return digits.unshift(1), digits
   }
 
   function binary(i){

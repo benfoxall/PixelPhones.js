@@ -1,0 +1,45 @@
+<html>
+<head>
+  <title>PixelPhones.js</title>
+  <link rel="stylesheet" type="text/css" href="main.css">
+  <style type="text/css">
+    .on{
+      background: #000;
+    }
+    input{
+      font-size: 3em
+    }
+  </style>
+</head>
+<body>
+  <form id="f">
+    <input id="i">
+  </form>
+
+  <script type="text/javascript" src="common.js"></script>
+  <script type="text/javascript">
+
+    var pulser;
+
+    f.addEventListener('submit',function(e){
+      e.preventDefault();
+      pulser = PP.pulser(parseInt(i.value, 10));
+      f.style.display = 'none';
+      update();
+    })
+
+
+    function update(){
+      requestAnimationFrame(update);
+
+      var fn = pulser(+ new Date) ? 'add' : 'remove'
+
+      document.body.classList[fn]('on');
+
+    }
+
+    // update();
+
+  </script>
+</body>
+</html>
