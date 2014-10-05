@@ -319,7 +319,7 @@ var observations = [],
     timestamps   = [],
     observationi = 0;
 
-var observation_count = 200;//60*7;
+var observation_count = 500;//60*7;
 
 function initCapture(){
 
@@ -356,19 +356,46 @@ function initCapture(){
   observationi = 0;
   observations = new Uint8ClampedArray(observation_count*(target_count+1));
 
-  canvas.style.display = 'none'
+  // video.style.display = canvas.style.display = 'none'
   capture();
 
 }
 
 var stopCapture;
 function capture(){
-  if(stopCapture) return;
+  if(stopCapture) return renderCapture();
   requestAnimationFrame(capture);
   stats.begin();
 
   var ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0);
+
+
+
+
+  target_totals = target_counts.map(function(){return 0})
+  var bounds, data, c, i, j
+  for (i = 0; i < targets.length; i++) {
+    
+    bounds = targets[i].bounds;
+
+    data = ctx.getImageData(
+      bounds[0], bounds[1],
+      bounds[2] - bounds[0], 
+      bounds[3] - bounds[1]
+    ).data
+
+    c = 0;
+    for (j = data.length - 1; j >= 0; j--) {
+      c+=data[j]
+    };
+    target_totals[i] = c/data.length;
+  }
+
+
+
+
+  /*
   var src = ctx.getImageData(0,0, canvas.width, canvas.height).data;
 
   target_totals = target_counts.map(function(){return 0})
@@ -389,10 +416,13 @@ function capture(){
     }
 
   };
+  */
 
   timestamps.push(+ new Date)
   // observations.push(target_totals.map(function(t,i){return t/target_counts[i]}))
-  observations.set(target_totals.map(function(t,i){return t/target_counts[i]}), observationi*target_count)
+  // observations.set(target_totals.map(function(t,i){return t/target_counts[i]}), observationi*target_count)
+
+  observations.set(target_totals, observationi*target_count)
 
   observationi++;
 
@@ -402,6 +432,8 @@ function capture(){
 
     renderCapture()
   }
+
+
   stats.end();
 }
 
