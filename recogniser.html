@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <title>PixelPhones.js</title>
   <link rel="stylesheet" type="text/css" href="main.css">
 </head>
@@ -8,6 +9,8 @@
   <h1>Recogniser</h1>
   <video autoplay muted></video>
   <canvas></canvas>
+
+  <script src="d3.js"></script>
   <script type="text/javascript" src="cv.js"></script>
   <script type="text/javascript" src="common.js"></script>
   <script type="text/javascript">
@@ -36,27 +39,41 @@
     video.onloadedmetadata = initialise;
 
     video.onended = function(){
-      stop = true;
-      console.log("ended");
 
-      // debug, draw matched contour bounding boxes
-      var max = Contours.reduce(function(memo, item){
-        return Math.max(memo, item.count)
-      }, 0);
+      stopCapture = true;
+      return;
 
-      console.log("max count", max);
+      if(!stop){
+        // the initial phase is running
 
-      var ctx = canvas.getContext('2d');
-      ctx.strokeStyle = 'red';
-      ctx.strokeWidth = 1;
-      ctx.fillStyle = 'rgba(0,255,0,0.5)';
+        stop = true;
 
-      Contours.filter(function(c){return c.count > Math.min(2, max)})
-      .forEach(function(c){
-        var b = c.bounds;
-        ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1]);
-        ctx.strokeRect(b[0],b[1],b[2]-b[0],b[3]-b[1]);
-      })
+        console.log("ended");
+
+        // debug, draw matched contour bounding boxes
+        var max = Contours.reduce(function(memo, item){
+          return Math.max(memo, item.count)
+        }, 0);
+
+        console.log("max count", max);
+
+        var ctx = canvas.getContext('2d');
+        ctx.strokeStyle = 'red';
+        ctx.strokeWidth = 1;
+        ctx.fillStyle = 'rgba(0,255,0,0.5)';
+
+        Contours.filter(function(c){return c.count > Math.min(2, max/2)})
+        .forEach(function(c){
+          var b = c.bounds;
+          ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1]);
+          ctx.strokeRect(b[0],b[1],b[2]-b[0],b[3]-b[1]);
+        })
+
+        video.onloadedmetadata = initCapture;
+        video.load();
+
+      }
+
     }
 
     /*
@@ -76,7 +93,9 @@
       canvas.width  = offcanvas.width  = video.videoWidth;
       canvas.height = offcanvas.height = video.videoHeight;
 
-      render()
+      // render()
+
+      initCapture()
     }
 
 
@@ -139,7 +158,7 @@
         contourReduce(Contours, frameContours)
 
 
-        ctx.fillStyle = 'rgba(255,0,255,0.1)';
+        ctx.fillStyle = 'rgba(255,0,255,0.4)';
         Contours.forEach(function(c){
           var b = c.bounds;
           ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1])
@@ -215,7 +234,7 @@ function contourProperties(contour){
       total_x/count, total_y/count
     ],
     density: area /  ((max_x - min_x)*(max_y - min_y)),
-    source: contour,
+    // source: contour,
     count:1
   }
 }
@@ -269,34 +288,6 @@ function contourReduce(prior, next){
   });
 }
 
-function ColorTheBlobs(dst,blobs,colors){
-    var xSize = dst.width,
-        ySize = dst.height,
-        dstPixels = dst.data,
-        x, y, pos;
-
-    var label, color, nColors = colors.length;
-
-    for(y=0; y<ySize; y++){
-        for(x=0; x<xSize; x++){
-            pos = (y*xSize+x)*4;
-
-            label = blobs[y][x];
-
-            if( label !== 0 ){
-                color = colors[ label % nColors ];
-                dstPixels[ pos+0 ] = color[0];
-                dstPixels[ pos+1 ] = color[1];
-                dstPixels[ pos+2 ] = color[2];
-                dstPixels[ pos+3 ] = color[3];
-            }else{
-                dstPixels[ pos+3 ] = 0;
-            }
-        }
-    }
-
-}
-
 
 function drawCVImage(imSrc, imDest){
   var src = imSrc.data, dest = imDest.data;
@@ -304,6 +295,155 @@ function drawCVImage(imSrc, imDest){
     dest[i*4] = dest[(i*4)+1] = dest[(i*4)+2] = src[i];
   }
 }
+
+
+
+
+// Capture Phase
+
+
+// hard coded target areas
+var targets = [{"bounds":[702,411,713,418]},{"bounds":[740,384,760,394]},{"bounds":[702,384,719,406]},{"bounds":[449,354,456,363]},{"bounds":[729,398,745,418]}];
+
+
+// the number of pixels in each bounding box, used to calculate average
+var target_counts = [],
+    target_mapping, // mapping from pixel to target
+    target_count,
+
+// updated per frame
+    target_totals = [];
+
+// the stored values for processing later
+var observations = [],
+    timestamps   = [],
+    observationi = 0;
+
+var observation_count = 200;//60*7;
+
+function initCapture(){
+
+  // TODO - clean up for intersecting bounds (perhaps ordering by size would do?)
+
+  // generate mapping from pixel to target
+  var w = canvas.width, h = canvas.height,
+      n = w * h, x, y;
+
+  target_mapping = new Uint8ClampedArray(n);
+
+  targets.forEach(function(target, i){
+    var b = target.bounds;
+    var min_x = b[0], max_x = b[2],
+        min_y = b[1], max_y = b[3];
+
+    // fill that region of map with i+1
+    for(x = min_x; x < max_x; x++){
+      for(y = min_y; y < max_y; y++){
+         target_mapping[x+(y*w)] = i+1;
+      }
+    }
+  })
+
+  // populate counts
+  for (var i = target_mapping.length - 1; i >= 0; i--) {
+    target_counts[target_mapping[i]] = (target_counts[target_mapping[i]] || 0) + 1;
+  }
+
+  target_count = targets.length;// mapping is actually i + 1
+
+
+  // start capturing
+  observationi = 0;
+  observations = new Uint8ClampedArray(observation_count*(target_count+1));
+
+  canvas.style.display = 'none'
+  capture();
+
+}
+
+var stopCapture;
+function capture(){
+  if(stopCapture) return;
+  requestAnimationFrame(capture);
+  stats.begin();
+
+  var ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  var src = ctx.getImageData(0,0, canvas.width, canvas.height).data;
+
+  target_totals = target_counts.map(function(){return 0})
+
+  var src_i, v;
+  for (var i = target_mapping.length - 1; i >= 0; i--) {
+    src_i = i*4;
+
+    v = target_mapping[i];
+
+    if(v){
+      target_totals[v] += (
+        src[src_i] * 0.299 + 
+        src[src_i + 1] * 0.587 + 
+        src[src_i + 2] * 0.114 + 
+        0.5
+      ) & 0xff;
+    }
+
+  };
+
+  timestamps.push(+ new Date)
+  // observations.push(target_totals.map(function(t,i){return t/target_counts[i]}))
+  observations.set(target_totals.map(function(t,i){return t/target_counts[i]}), observationi*target_count)
+
+  observationi++;
+
+  if(observationi >= observation_count){
+    stopCapture = true
+    console.log("DONE CAPTURE")
+
+    renderCapture()
+  }
+  stats.end();
+}
+
+
+function renderCapture(){
+  canvas.style.display = 'block'
+
+  var ctx = canvas.getContext('2d'),
+      target, obs_i;
+
+
+  var x = d3.scale.linear()
+      .range([0, canvas.width])
+      .domain([0, observation_count])
+
+  var y = d3.scale.linear()
+      .range([0, canvas.height])
+      .domain([0, target_count]);
+
+
+
+  ctx.fillStyle='green'
+
+  for (var i = 0; i < observations.length; i++) {
+    target = i % target_count;
+    obs_i = Math.floor(i / targets.length);
+
+    ctx.fillRect(
+      x(obs_i),
+      y(target),
+      x(1)-x(0)+1,
+      -(observations[i]/255)*y(1)-y(0)
+    );
+
+  }
+
+}
+
+
+
+
+
 
   </script>
 </body>
