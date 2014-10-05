@@ -7,7 +7,7 @@
   <h1>Recogniser</h1>
   <!-- <video src="dev-video/office-basic.webm" autoplay loxop muted></video> -->
 
-  <video autoplay loop muted></video>
+  <video autoplay muted></video>
   <canvas></canvas>
   <script type="text/javascript" src="cv.js"></script>
   <script type="text/javascript" src="common.js"></script>
@@ -38,8 +38,9 @@
 
     video.onended = function(){
       stop = true;
-      consle.log("ended")
+      console.log("ended")
     }
+
     /*
     navigator.getUserMedia(
       {video:true, audio:false}, 
@@ -59,6 +60,10 @@
 
       render()
     }
+
+
+    // a rolling list of observed contours {centroid, bounds, mass, density, count}
+    var Contours = [];
 
 
     var greyLast = new CV.Image(), grey = new CV.Image(), thresh = new CV.Image();
@@ -122,9 +127,19 @@
         
         drawCVImage(thresh, imageData)
 
-        ctx.putImageData(imageData, 0,0)
+        // ctx.putImageData(imageData, 0,0)
 
-        cs.push(CV.findContours(thresh, binary));
+        var c = CV.findContours(thresh, binary);
+        cs.push(c);
+
+        // Contours.push()
+
+        var frameContours = c.map(contourProperties)
+
+        contourReduce(Contours, frameContours)
+
+
+
 
         /*
         // on
@@ -206,6 +221,21 @@
         })
 
         */
+
+        ctx.fillStyle = 'rgba(255,0,255,0.1)';
+        Contours.forEach(function(c){
+          var b = c.bounds;
+          ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1])
+        })
+
+        // the 'just observed' ones
+        ctx.fillStyle = 'rgba(0,255,0,1)';
+        frameContours.forEach(function(c){
+          var b = c.bounds;
+          ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1])
+        })
+
+
       }
 
       CV.grayscale(imageDataClone,greyLast);
@@ -221,6 +251,106 @@
       return n
     }
 
+
+// take an array of {x,y} give back bounds, mass, centroid & density
+function contourProperties(contour){
+  // due to the border-following contour search, the last item will be repeated
+  var count = contour.length - 1,
+      total_x = 0,
+      total_y = 0,
+      min_x = Infinity,
+      min_y = Infinity,
+      max_x = -Infinity,
+      max_y = -Infinity,
+
+      // to calculate the area given perimiter pixels
+      sliceMap = {};
+
+  for (var x, y, i = count - 1; i >= 0; i--) {
+    x = contour[i].x;
+    y = contour[i].y;
+
+    total_x += x;
+    total_y += y;
+    min_x = Math.min(min_x, x);
+    max_x = Math.max(max_x, x+1);
+    min_y = Math.min(min_y, y);
+    max_y = Math.max(max_y, y+1);
+
+    if(sliceMap[x]){
+      sliceMap[x][0] = Math.min(sliceMap[x][0], y);
+      sliceMap[x][1] = Math.max(sliceMap[x][1], y+1);
+    } else {
+      sliceMap[x] =[y,y+1]
+    }
+  }
+
+  var area = 0;
+  for(x in sliceMap){
+    area += sliceMap[x][1] - sliceMap[x][0]
+  }
+
+  return {
+    bounds: [min_x, min_y, max_x, max_y],
+    dimensions: [max_x-min_x, max_y-min_y],
+    mass: area,
+    centroid: [
+      total_x/count, total_y/count
+    ],
+    density: area /  ((max_x - min_x)*(max_y - min_y)),
+    source: contour,
+    count:1
+  }
+}
+
+
+function contourFilter(contour){
+  return contour.mass > 25 && contour.density > 0.6;
+}
+
+function contourReduce(prior, next){
+  var newContours = [];
+
+  var min_x, max_x, min_y, max_y, min_mass, max_mass;
+  next.forEach(function(c){
+    // find a contour that matches this one
+    min_x = c.centroid[0] - (c.dimensions[0]/2);
+    max_x = c.centroid[0] + (c.dimensions[0]/2);
+    min_y = c.centroid[1] - (c.dimensions[1]/2);
+    max_y = c.centroid[1] + (c.dimensions[1]/2);
+    min_mass = c.mass * 0.8;
+    max_mass = c.mass * 1.2;
+
+    var c_prior;
+    for (var i = 0; i < prior.length -1; i++){
+      c_prior = prior[i];
+
+      if(!c_prior.centroid) debugger;
+
+      if(
+        c_prior.centroid[0] > min_x &&
+        c_prior.centroid[0] < max_x &&
+        c_prior.centroid[1] > min_y &&
+        c_prior.centroid[1] < max_y &&
+        c_prior.mass > min_mass &&
+        c_prior.mass < max_mass
+      ) {
+        // update the existing node
+        console.log("match found", i);
+        c.count += c_prior.count;
+        prior[i] = c;
+        return;
+      }
+    };
+
+    // if not, just add it
+    newContours.push(c)
+  })
+
+  newContours.forEach(function(c){
+    prior.push(c)
+  });
+}
 
 function ColorTheBlobs(dst,blobs,colors){
     var xSize = dst.width,
