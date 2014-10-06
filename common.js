@@ -37,7 +37,7 @@
 
   // add a leading 1, so starts with a pulse
   function padding(digits){
-    return digits.unshift(1), digits
+    return [1].concat(digits)
   }
 
   function binary(i){
@@ -47,9 +47,136 @@
   function manchester(digits){
     var encoded = new Array(digits.length*2)
     for(var i = 0; i < digits.length*2; i++){
-      encoded[i] = (i%2) ^ digits[Math.floor(i/2)]
+      encoded[i] = ((i+1)%2) ^ digits[Math.floor(i/2)]
     }
     return encoded
+  }
+
+  function unpadding(digits){
+    return digits.slice(1)
+  }
+
+  function unbinary(digits){
+    var str = digits.map(function(d){return d ? '1': '0'}).join('');
+    return parseInt(str, 2)
+  }
+
+  function unmanchester(digits){
+    var decoded = new Array(digits.length/2)
+    for(var i = 0; i < digits.length/2; i++){
+      decoded[i] = !digits[i*2]
+    }
+    return decoded
+  }
+
+  // expose for testing
+  PP.encodingHelpers = {
+    padding : padding,
+    binary : binary,
+    manchester : manchester,
+    unpadding : unpadding,
+    unbinary : unbinary,
+    unmanchester : unmanchester
+  }
+
+
+  // Detection functions
+
+  PP.Transitions = function(threshold){
+    this.prior = this.priorT = null;
+    this.threshold = threshold;
+  }
+
+  PP.Transitions.prototype.add = function(value, timestamp){
+    var state = value > this.threshold;
+    if(this.prior !== state){
+      if(this.prior === null){
+        this.prior = state;
+        this.priorT = timestamp;
+      } else {
+        var t = this.priorT + ((timestamp - this.priorT)/2);
+        this.prior = state;
+        this.priorT = timestamp;
+        return [state ? 1: 0, ~~t]
+      }
+    }
+
+    this.priorT = timestamp;
+  }
+
+
+  // deltas are either short, long, or weird,
+  // would be much cooler if it used FFT
+  PP.PhaseDetector = function(){
+    this.period = null;
+    this.lastTime = null;
+    this.total = 0;
+    this.count = 0;
+  }
+
+  // detects the period length of a manchester 
+  // encoded signal.  Not very robust or correct
+  // deltas are either short, long, or weird
+  PP.PhaseDetector.prototype.add = function(value, timestamp){
+    if(this.lastTime === null){
+      this.lastTime = timestamp;
+      return;
+    }
+
+    var time = timestamp - this.lastTime;
+    this.total += ~~(time + (time/2))
+    this.count += 2;
+    this.period = this.total / this.count;
+
+    this.lastTime = timestamp;
+  }
+
+
+  
+  PP.BinaryDecoder = function(period){
+    this.period = period;
+    this.lastTime = null;
+    this.result = [];
+  }
+
+  PP.BinaryDecoder.prototype.add = function(value, timestamp){
+    if(this.lastTime === null) {
+      this.lastTime = timestamp;
+      return
+    }
+
+    var time = timestamp - this.lastTime;
+    var lastVal = value ? 0 : 1;
+
+    var digits = Math.round(time/this.period);
+
+    for(var i = 0; i < digits; i++){
+      console.log(lastVal)
+      this.result.push(lastVal)
+    }
+
+    this.lastTime = timestamp;
+  }
+
+
+
+  // full on decoder, takes the grey values and outputs 
+  // the id
+  PP.Decoder = function(threshold, period){
+    this.transitionDetector = new PP.Transitions(threshold);
+    this.phaseDetector = new PP.PhaseDetector();
+    this.binaryDecoder = new PP.BinaryDecoder(100);// TODO - dynamic
+  }
+
+  PP.Decoder.prototype.add = function(value, timestamp){
+    var t = this.transitionDetector.add(value, timestamp)
+    if(t){
+      this.phaseDetector.add(t[0], t[1])
+      console.log("detected phase", this.phaseDetector.period)
+
+      this.binaryDecoder.add(t[0], t[1])
+      console.log("binary code",this.binaryDecoder.result)
+    }
   }
 
   global.PP = PP;
