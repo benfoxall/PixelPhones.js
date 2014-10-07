@@ -116,7 +116,6 @@ describe('phase detector', function(){
   })
 
   it('found the period', function(){
-    console.log("---")
     decoder.period.should.be.approximately(100, 5);
   })
 })
@@ -174,12 +173,9 @@ xdescribe('decoder', function(){
 
         // 10 observations 
         times(10, function(){
-          console.log("adding")
           decoder.add(digit ? 200 : 100, time)
-
           time+=10;
         })
-        console.log("T", time)
       })
     })
   })
