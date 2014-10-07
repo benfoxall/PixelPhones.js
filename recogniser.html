@@ -24,82 +24,47 @@
 
     document.body.appendChild( stats.domElement );
 
-
-
-    navigator.getUserMedia = ( navigator.getUserMedia ||
+    navigator.getUserMedia = ( navigator.getUserMedia       ||
                                navigator.webkitGetUserMedia ||
-                               navigator.mozGetUserMedia ||
-                               navigator.msGetUserMedia);
+                               navigator.mozGetUserMedia    ||
+                               navigator.msGetUserMedia );
 
 
+    // master list of devices
+    var devices = [];
+
+    // shared ui bindings
     var video     = document.querySelector('video'),
         canvas    = document.querySelector('canvas'),
-        offcanvas = document.createElement('canvas');
+        ctx       = canvas.getContext('2d');
 
-    video.onloadedmetadata = initialise;
+    function initElements(){
+
+      // delicately to prevent clearing canvas
+      if(canvas.width   !== video.videoWidth)  canvas.width  = video.videoWidth
+      if(canvas.height  !== video.videoHeight) canvas.height = video.videoHeight
+      
+      ctx = canvas.getContext('2d')
+
+      video.style.display = 'none'
+    }
+
+
+    video.onloadedmetadata = function(){
+      initElements()
+      setTimeout(function(){
+        wait = false;  
+      },300)
+      
+    }
 
     video.onended = function(){
-
-      stopCapture = true;
-      return;
-
-      if(!stop){
-        // the initial phase is running
-
-        stop = true;
-
-        console.log("ended");
-
-        // debug, draw matched contour bounding boxes
-        var max = Contours.reduce(function(memo, item){
-          return Math.max(memo, item.count)
-        }, 0);
-
-        console.log("max count", max);
-
-        var ctx = canvas.getContext('2d');
-        ctx.strokeStyle = 'red';
-        ctx.strokeWidth = 1;
-        ctx.fillStyle = 'rgba(0,255,0,0.5)';
-
-        Contours.filter(function(c){return c.count > Math.min(2, max/2)})
-        .forEach(function(c){
-          var b = c.bounds;
-          ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1]);
-          ctx.strokeRect(b[0],b[1],b[2]-b[0],b[3]-b[1]);
-        })
-
-        video.onloadedmetadata = initCapture;
-        video.load();
-
-      }
-
+      wait = true;
+      video.load(); // hack for badly encoded video by me
     }
 
-    /*
-    navigator.getUserMedia(
-      {video:true, audio:false}, 
-      function(localMediaStream){
-        video.src = window.URL.createObjectURL(localMediaStream);
-      },
-      console.error.bind(console)
-    );
-    */
-
+    // development video
     video.src="dev-video/office-basic.webm"
-
-
-    function initialise(){
-      canvas.width  = offcanvas.width  = video.videoWidth;
-      canvas.height = offcanvas.height = video.videoHeight;
-
-      // render()
-
-      initCapture()
-    }
-
-
-
 
 
     /*
@@ -109,7 +74,7 @@
         2 - identify objects
         3 - display results
     */
-    var phase = 0, priorPhase, wait; 
+    var phase = 0, priorPhase, wait;
 
 
     function loop(){
@@ -120,8 +85,11 @@
       stats.begin()
 
       // exit, enter
-      if(priorPhase !== phase)
+      if(priorPhase !== phase){
+        console.log(phase)
         state(phase,'enter', state(priorPhase,'exit'))
+        priorPhase = phase
+      }
 
       // defer to the approprate function
       else
@@ -144,13 +112,7 @@
     }
 
 
-    // master list of devices
-    var devices = [];
 
-    // shared ui bindings
-    var video     = document.querySelector('video'),
-        canvas    = document.querySelector('canvas'),
-        ctx       = canvas.getContext('2d');
 
 
     var state_waiting = {
@@ -167,18 +129,211 @@
 
     var state_locating = (function(){
 
-      var contours;
+      // a rolling list of observed contours {centroid, bounds, mass, density, count}
+      var Contours = [];
+      var greyLast = new CV.Image(), grey = new CV.Image(), thresh = new CV.Image();
+      var cs = [], binary = [];
+      var markers = [];
+      var last;
+      var stop;
+
 
       function enter(){
-        contours = []
+        console.log("enterd")
+        Contours = []
       }
 
       function loop(){
 
+        ctx.drawImage(video, 0, 0);
+        var imageData      = ctx.getImageData(0,0, canvas.width, canvas.height);
+        var imageDataClone = ctx.getImageData(0,0, canvas.width, canvas.height);
+
+          console.log("0")
+        if(last){
+
+          CV.grayscale(imageData, grey);
+
+
+          // find difference
+          var _src = greyLast.data, _dest = grey.data;
+          for (var i = _src.length - 1; i >= 0; i--) {
+            // _src[i] = clamp(l)
+            _dest[i] = clamp(_dest[i] - _src[i] + 125)
+          };
+
+
+          // CV.adaptiveThreshold(grey, thresh, 2, 7);
+
+          CV.threshold(grey, thresh, 200);
+
+          // imageData.data = grey.data;
+          
+          drawCVImage(thresh, imageData)
+
+          // ctx.putImageData(imageData, 0,0)
+
+          var c = CV.findContours(thresh, binary);
+          cs.push(c);
+
+          // Contours.push()
+
+          var frameContours = c.map(contourProperties)
+
+
+
+          ctx.fillStyle = 'rgba(255,0,255,0.4)';
+          Contours.forEach(function(c){
+            var b = c.bounds;
+            ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1])
+          })
+
+          // the 'just observed' ones
+          frameContours.forEach(function(c){
+            // display the ones that will be collected
+            ctx.fillStyle = contourFilter(c) ? 'rgba(0,255,0,1)' : 'rgba(255,0,0,1)'
+            var b = c.bounds;
+            ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1])
+          })
+
+
+          contourReduce(Contours, frameContours.filter(contourFilter))
+
+        }
+
+        CV.grayscale(imageDataClone,greyLast);
+        last = true;
+
+
       }
 
+
       function exit(){
-        return contours;
+        var maxCount = Contours.map(function(c){
+          return c.count;
+        }).reduce(function(a,b){return Math.max(a,b)},0);
+
+        var countThresh = Math.max(Math.floor(maxCount/3), 2);
+
+        console.log("max count: " + maxCount + "; count threshold: " + countThresh);
+
+        return Contours.filter(function(c){
+          return c.count > countThresh;
+        });
+      }
+
+      function clamp(n){
+        if(n < 0) return 0;
+        if(n > 255) return 255;
+        return n
+      }
+
+
+      // take an array of {x,y} give back bounds, mass, centroid & density
+      function contourProperties(contour){
+        // due to the border-following contour search, the last item will be repeated
+        var count = contour.length - 1,
+            total_x = 0,
+            total_y = 0,
+            min_x = Infinity,
+            min_y = Infinity,
+            max_x = -Infinity,
+            max_y = -Infinity,
+
+            // to calculate the area given perimiter pixels
+            sliceMap = {};
+
+        for (var x, y, i = count - 1; i >= 0; i--) {
+          x = contour[i].x;
+          y = contour[i].y;
+
+          total_x += x;
+          total_y += y;
+          min_x = Math.min(min_x, x);
+          max_x = Math.max(max_x, x+1);
+          min_y = Math.min(min_y, y);
+          max_y = Math.max(max_y, y+1);
+
+          if(sliceMap[x]){
+            sliceMap[x][0] = Math.min(sliceMap[x][0], y);
+            sliceMap[x][1] = Math.max(sliceMap[x][1], y+1);
+          } else {
+            sliceMap[x] =[y,y+1]
+          }
+        }
+
+        var area = 0;
+        for(x in sliceMap){
+          area += sliceMap[x][1] - sliceMap[x][0]
+        }
+
+        return {
+          bounds: [min_x, min_y, max_x, max_y],
+          dimensions: [max_x-min_x, max_y-min_y],
+          mass: area,
+          centroid: [
+            total_x/count, total_y/count
+          ],
+          density: area /  ((max_x - min_x)*(max_y - min_y)),
+          // source: contour,
+          count:1
+        }
+      }
+
+
+      function contourFilter(contour){
+        return contour.mass > 25 && contour.density > 0.6;
+      }
+
+      function contourReduce(prior, next){
+        var newContours = [];
+
+        var min_x, max_x, min_y, max_y, min_mass, max_mass;
+        next.forEach(function(c){
+          // find a contour that matches this one
+          min_x = c.centroid[0] - (c.dimensions[0]/2);
+          max_x = c.centroid[0] + (c.dimensions[0]/2);
+          min_y = c.centroid[1] - (c.dimensions[1]/2);
+          max_y = c.centroid[1] + (c.dimensions[1]/2);
+          min_mass = c.mass * 0.8;
+          max_mass = c.mass * 1.2;
+
+          var c_prior;
+          for (var i = 0; i < prior.length -1; i++){
+            c_prior = prior[i];
+
+            if(!c_prior.centroid) debugger;
+
+            if(
+              c_prior.centroid[0] > min_x &&
+              c_prior.centroid[0] < max_x &&
+              c_prior.centroid[1] > min_y &&
+              c_prior.centroid[1] < max_y &&
+              c_prior.mass > min_mass &&
+              c_prior.mass < max_mass
+            ) {
+              // update the existing node
+              console.log("match found", i);
+              c.count += c_prior.count;
+              prior[i] = c;
+              return;
+            }
+          };
+
+          // if not, just add it
+          newContours.push(c)
+        })
+
+        newContours.forEach(function(c){
+          prior.push(c)
+        });
+      }
+
+      function drawCVImage(imSrc, imDest){
+        var src = imSrc.data, dest = imDest.data;
+        for (var i = src.length - 1; i >= 0; i--) {
+          dest[i*4] = dest[(i*4)+1] = dest[(i*4)+2] = src[i];
+        }
       }
 
       return {
@@ -186,17 +341,155 @@
         loop:  loop,
         exit:  exit
       }
-    })
+    })()
 
+
+
+
+
+
+    /*
+      Reading the binary codes of targets
+    */
 
 
     var state_reading = (function(){
 
+      // the number of pixels in each bounding box, used to calculate average
+      var target_counts = [],
+          target_mapping, // mapping from pixel to target
+          target_count,
+
+      // updated per frame
+          target_totals = [];
+
+      // the stored values for processing later
+      var observations = [],
+          timestamps   = [],
+          observationi = 0;
+
+      var observation_count = 600;//60*7;
+
+      var completed;
+
+
       function enter(contours){
+
+        completed = false;
+
+        targets = contours;// [{"bounds":[702,411,713,418]},{"bounds":[740,384,760,394]},{"bounds":[702,384,719,406]},{"bounds":[449,354,456,363]},{"bounds":[729,398,745,418]}];
+
+        // add a decoder for each one
+        targets.forEach(function(t){
+          t.decoder = new PP.Decoder(170)
+        })
+
+        // TODO - clean up for intersecting bounds (perhaps ordering by size would do?)
+
+        // generate mapping from pixel to target
+        var w = canvas.width, h = canvas.height,
+            n = w * h, x, y;
+
+        target_mapping = new Uint8ClampedArray(n);
+
+        targets.forEach(function(target, i){
+          var b = target.bounds;
+          var min_x = b[0], max_x = b[2],
+              min_y = b[1], max_y = b[3];
+
+          // fill that region of map with i+1
+          for(x = min_x; x < max_x; x++){
+            for(y = min_y; y < max_y; y++){
+               target_mapping[x+(y*w)] = i+1;
+            }
+          }
+        })
+
+        // populate counts
+        for (var i = target_mapping.length - 1; i >= 0; i--) {
+          target_counts[target_mapping[i]] = (target_counts[target_mapping[i]] || 0) + 1;
+        }
+
+        target_count = targets.length;// mapping is actually i + 1
+
+
+        // start capturing
+        observationi = 0;
+        observations = new Uint8ClampedArray(observation_count*(target_count+1));
+
 
       }
 
       function loop(){
+
+        if(completed) return;
+
+
+        ctx.drawImage(video, 0, 0);
+
+        var timestamp = + new Date;
+
+        target_totals = target_counts.map(function(){return 0})
+        var bounds, data, c, i, j
+        for (i = 0; i < targets.length; i++) {
+          
+          bounds = targets[i].bounds;
+
+          data = ctx.getImageData(
+            bounds[0], bounds[1],
+            bounds[2] - bounds[0], 
+            bounds[3] - bounds[1]
+          ).data
+
+          c = 0;
+          for (j = data.length - 1; j >= 0; j--) {
+            c+=data[j]
+          };
+          target_totals[i] = c/data.length;
+
+
+          targets[i].decoder.add(c/data.length, timestamp);
+        }
+
+
+
+
+        /*
+        var src = ctx.getImageData(0,0, canvas.width, canvas.height).data;
+
+        target_totals = target_counts.map(function(){return 0})
+
+        var src_i, v;
+        for (var i = target_mapping.length - 1; i >= 0; i--) {
+          src_i = i*4;
+
+          v = target_mapping[i];
+
+          if(v){
+            target_totals[v] += (
+              src[src_i] * 0.299 + 
+              src[src_i + 1] * 0.587 + 
+              src[src_i + 2] * 0.114 + 
+              0.5
+            ) & 0xff;
+          }
+
+        };
+        */
+
+        timestamps.push(+ new Date)
+
+        observations.set(target_totals, observationi*target_count)
+
+
+        observationi++;
+
+        if(observationi >= observation_count){
+          stopCapture = true
+          console.log("DONE CAPTURE")
+          completed = true;
+          renderCapture()
+        }
 
       }
 
@@ -204,409 +497,50 @@
         
       }
 
+
+
+      function renderCapture(){
+        canvas.style.display = 'block'
+
+        var target, obs_i;
+
+        var x = d3.scale.linear()
+            .range([0, canvas.width])
+            .domain([0, observation_count])
+
+        var y = d3.scale.linear()
+            .range([0, canvas.height])
+            .domain([0, target_count]);
+
+
+        ctx.fillStyle='green'
+
+        for (var i = 0; i < observations.length; i++) {
+          target = i % target_count;
+          obs_i = Math.floor(i / targets.length);
+
+          ctx.fillRect(
+            x(obs_i),
+            y(target+1),
+            x(1)-x(0)+1,
+            -(observations[i]/255)*y(1)-y(0)
+          );
+
+        }
+
+      }
+
+
       return {
         enter: enter,
         loop:  loop,
         exit:  exit
       }
-    })
-
-
+    })()
 
 
     // GO!
-    // loop();
-
-
-
-
-
-
-
-    // a rolling list of observed contours {centroid, bounds, mass, density, count}
-    var Contours = [];
-
-
-    var greyLast = new CV.Image(), grey = new CV.Image(), thresh = new CV.Image();
-
-
-    var cs = [], binary = [];
-
-
-    var markers = [];
-
-    var last;
-
-    var stop;
-    function render(){
-      if(stop) return;
-      requestAnimationFrame(render);
-      stats.begin();
-
-      // pull a frame from the video (could be offscreen)
-      var ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0);
-      var imageData      = ctx.getImageData(0,0, canvas.width, canvas.height);
-      var imageDataClone = ctx.getImageData(0,0, canvas.width, canvas.height);
-
-      if(last){
-
-        CV.grayscale(imageData, grey);
-
-
-        // find difference
-        var _src = greyLast.data, _dest = grey.data;
-        for (var i = _src.length - 1; i >= 0; i--) {
-          // _src[i] = clamp(l)
-          _dest[i] = clamp(_dest[i] - _src[i] + 125)
-        };
-
-
-        // CV.adaptiveThreshold(grey, thresh, 2, 7);
-
-        CV.threshold(grey, thresh, 200);
-
-        // imageData.data = grey.data;
-        
-        drawCVImage(thresh, imageData)
-
-        // ctx.putImageData(imageData, 0,0)
-
-        var c = CV.findContours(thresh, binary);
-        cs.push(c);
-
-        // Contours.push()
-
-        var frameContours = c.map(contourProperties)
-
-        contourReduce(Contours, frameContours)
-
-
-        ctx.fillStyle = 'rgba(255,0,255,0.4)';
-        Contours.forEach(function(c){
-          var b = c.bounds;
-          ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1])
-        })
-
-        // the 'just observed' ones
-        ctx.fillStyle = 'rgba(0,255,0,1)';
-        frameContours.forEach(function(c){
-          var b = c.bounds;
-          ctx.fillRect(b[0],b[1],b[2]-b[0],b[3]-b[1])
-        })
-
-
-      }
-
-      CV.grayscale(imageDataClone,greyLast);
-      last = true;
-
-
-      stats.end();
-    }
-
-    function clamp(n){
-      if(n < 0) return 0;
-      if(n > 255) return 255;
-      return n
-    }
-
-
-// take an array of {x,y} give back bounds, mass, centroid & density
-function contourProperties(contour){
-  // due to the border-following contour search, the last item will be repeated
-  var count = contour.length - 1,
-      total_x = 0,
-      total_y = 0,
-      min_x = Infinity,
-      min_y = Infinity,
-      max_x = -Infinity,
-      max_y = -Infinity,
-
-      // to calculate the area given perimiter pixels
-      sliceMap = {};
-
-  for (var x, y, i = count - 1; i >= 0; i--) {
-    x = contour[i].x;
-    y = contour[i].y;
-
-    total_x += x;
-    total_y += y;
-    min_x = Math.min(min_x, x);
-    max_x = Math.max(max_x, x+1);
-    min_y = Math.min(min_y, y);
-    max_y = Math.max(max_y, y+1);
-
-    if(sliceMap[x]){
-      sliceMap[x][0] = Math.min(sliceMap[x][0], y);
-      sliceMap[x][1] = Math.max(sliceMap[x][1], y+1);
-    } else {
-      sliceMap[x] =[y,y+1]
-    }
-  }
-
-  var area = 0;
-  for(x in sliceMap){
-    area += sliceMap[x][1] - sliceMap[x][0]
-  }
-
-  return {
-    bounds: [min_x, min_y, max_x, max_y],
-    dimensions: [max_x-min_x, max_y-min_y],
-    mass: area,
-    centroid: [
-      total_x/count, total_y/count
-    ],
-    density: area /  ((max_x - min_x)*(max_y - min_y)),
-    // source: contour,
-    count:1
-  }
-}
-
-
-function contourFilter(contour){
-  return contour.mass > 25 && contour.density > 0.6;
-}
-
-function contourReduce(prior, next){
-  var newContours = [];
-
-  var min_x, max_x, min_y, max_y, min_mass, max_mass;
-  next.forEach(function(c){
-    // find a contour that matches this one
-    min_x = c.centroid[0] - (c.dimensions[0]/2);
-    max_x = c.centroid[0] + (c.dimensions[0]/2);
-    min_y = c.centroid[1] - (c.dimensions[1]/2);
-    max_y = c.centroid[1] + (c.dimensions[1]/2);
-    min_mass = c.mass * 0.8;
-    max_mass = c.mass * 1.2;
-
-    var c_prior;
-    for (var i = 0; i < prior.length -1; i++){
-      c_prior = prior[i];
-
-      if(!c_prior.centroid) debugger;
-
-      if(
-        c_prior.centroid[0] > min_x &&
-        c_prior.centroid[0] < max_x &&
-        c_prior.centroid[1] > min_y &&
-        c_prior.centroid[1] < max_y &&
-        c_prior.mass > min_mass &&
-        c_prior.mass < max_mass
-      ) {
-        // update the existing node
-        console.log("match found", i);
-        c.count += c_prior.count;
-        prior[i] = c;
-        return;
-      }
-    };
-
-    // if not, just add it
-    newContours.push(c)
-  })
-
-  newContours.forEach(function(c){
-    prior.push(c)
-  });
-}
-
-
-function drawCVImage(imSrc, imDest){
-  var src = imSrc.data, dest = imDest.data;
-  for (var i = src.length - 1; i >= 0; i--) {
-    dest[i*4] = dest[(i*4)+1] = dest[(i*4)+2] = src[i];
-  }
-}
-
-
-
-
-// Capture Phase
-
-
-// hard coded target areas
-var targets = [{"bounds":[702,411,713,418]},{"bounds":[740,384,760,394]},{"bounds":[702,384,719,406]},{"bounds":[449,354,456,363]},{"bounds":[729,398,745,418]}];
-
-
-// the number of pixels in each bounding box, used to calculate average
-var target_counts = [],
-    target_mapping, // mapping from pixel to target
-    target_count,
-
-// updated per frame
-    target_totals = [];
-
-// the stored values for processing later
-var observations = [],
-    timestamps   = [],
-    observationi = 0;
-
-var observation_count = 600;//60*7;
-
-function initCapture(){
-
-
-  targets.forEach(function(t){
-    t.decoder = new PP.Decoder(170)
-  })
-
-  // TODO - clean up for intersecting bounds (perhaps ordering by size would do?)
-
-  // generate mapping from pixel to target
-  var w = canvas.width, h = canvas.height,
-      n = w * h, x, y;
-
-  target_mapping = new Uint8ClampedArray(n);
-
-  targets.forEach(function(target, i){
-    var b = target.bounds;
-    var min_x = b[0], max_x = b[2],
-        min_y = b[1], max_y = b[3];
-
-    // fill that region of map with i+1
-    for(x = min_x; x < max_x; x++){
-      for(y = min_y; y < max_y; y++){
-         target_mapping[x+(y*w)] = i+1;
-      }
-    }
-  })
-
-  // populate counts
-  for (var i = target_mapping.length - 1; i >= 0; i--) {
-    target_counts[target_mapping[i]] = (target_counts[target_mapping[i]] || 0) + 1;
-  }
-
-  target_count = targets.length;// mapping is actually i + 1
-
-
-  // start capturing
-  observationi = 0;
-  observations = new Uint8ClampedArray(observation_count*(target_count+1));
-
-  // video.style.display = canvas.style.display = 'none'
-  capture();
-
-}
-
-var stopCapture;
-function capture(){
-  if(stopCapture) return renderCapture();
-  requestAnimationFrame(capture);
-  stats.begin();
-
-  var ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0);
-
-
-  var timestamp = + new Date;
-
-
-
-  target_totals = target_counts.map(function(){return 0})
-  var bounds, data, c, i, j
-  for (i = 0; i < targets.length; i++) {
-    
-    bounds = targets[i].bounds;
-
-    data = ctx.getImageData(
-      bounds[0], bounds[1],
-      bounds[2] - bounds[0], 
-      bounds[3] - bounds[1]
-    ).data
-
-    c = 0;
-    for (j = data.length - 1; j >= 0; j--) {
-      c+=data[j]
-    };
-    target_totals[i] = c/data.length;
-
-
-    targets[i].decoder.add(c/data.length, timestamp);
-  }
-
-
-
-
-  /*
-  var src = ctx.getImageData(0,0, canvas.width, canvas.height).data;
-
-  target_totals = target_counts.map(function(){return 0})
-
-  var src_i, v;
-  for (var i = target_mapping.length - 1; i >= 0; i--) {
-    src_i = i*4;
-
-    v = target_mapping[i];
-
-    if(v){
-      target_totals[v] += (
-        src[src_i] * 0.299 + 
-        src[src_i + 1] * 0.587 + 
-        src[src_i + 2] * 0.114 + 
-        0.5
-      ) & 0xff;
-    }
-
-  };
-  */
-
-  timestamps.push(+ new Date)
-  // observations.push(target_totals.map(function(t,i){return t/target_counts[i]}))
-  // observations.set(target_totals.map(function(t,i){return t/target_counts[i]}), observationi*target_count)
-
-  observations.set(target_totals, observationi*target_count)
-
-
-  observationi++;
-
-  if(observationi >= observation_count){
-    stopCapture = true
-    console.log("DONE CAPTURE")
-
-    renderCapture()
-  }
-
-
-  stats.end();
-}
-
-
-function renderCapture(){
-  canvas.style.display = 'block'
-
-  var ctx = canvas.getContext('2d'),
-      target, obs_i;
-
-
-  var x = d3.scale.linear()
-      .range([0, canvas.width])
-      .domain([0, observation_count])
-
-  var y = d3.scale.linear()
-      .range([0, canvas.height])
-      .domain([0, target_count]);
-
-
-
-  ctx.fillStyle='green'
-
-  for (var i = 0; i < observations.length; i++) {
-    target = i % target_count;
-    obs_i = Math.floor(i / targets.length);
-
-    ctx.fillRect(
-      x(obs_i),
-      y(target+1),
-      x(1)-x(0)+1,
-      -(observations[i]/255)*y(1)-y(0)
-    );
-
-  }
-
-}
-
+    loop();
 
 
   </script>
