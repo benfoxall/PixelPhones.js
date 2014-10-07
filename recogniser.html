@@ -6,7 +6,7 @@
   <link rel="stylesheet" type="text/css" href="main.css">
 </head>
 <body>
-  <h1>Recogniser</h1>
+  <h1>Recogniser <span id="state">-</span></h1>
   <video autoplay muted></video>
   <canvas></canvas>
 
@@ -97,6 +97,130 @@
 
       initCapture()
     }
+
+
+
+
+
+    /*
+      phase - 
+        0 - waiting
+        1 - find flashing objects
+        2 - identify objects
+        3 - display results
+    */
+    var phase = 0, priorPhase, wait; 
+
+
+    function loop(){
+      requestAnimationFrame(loop)
+
+      if(wait) return
+
+      stats.begin()
+
+      // exit, enter
+      if(priorPhase !== phase)
+        state(phase,'enter', state(priorPhase,'exit'))
+
+      // defer to the approprate function
+      else
+        state(phase,'loop')
+
+
+      stats.end()
+    }
+
+
+    function state(i, fn, arg){
+      return (
+        (
+          i === 0 ? state_waiting  :
+          i === 1 ? state_locating : 
+          i === 2 ? state_reading  : 
+          {}
+        )[fn] || function(){}
+      )(arg)
+    }
+
+
+    // master list of devices
+    var devices = [];
+
+    // shared ui bindings
+    var video     = document.querySelector('video'),
+        canvas    = document.querySelector('canvas'),
+        ctx       = canvas.getContext('2d');
+
+
+    var state_waiting = {
+      loop: function(){
+        ctx.drawImage(video, 0, 0);
+      }
+    };
+
+
+
+    /*
+      locating any flashing objects that are phone shaped
+    */
+
+    var state_locating = (function(){
+
+      var contours;
+
+      function enter(){
+        contours = []
+      }
+
+      function loop(){
+
+      }
+
+      function exit(){
+        return contours;
+      }
+
+      return {
+        enter: enter,
+        loop:  loop,
+        exit:  exit
+      }
+    })
+
+
+
+    var state_reading = (function(){
+
+      function enter(contours){
+
+      }
+
+      function loop(){
+
+      }
+
+      function exit(){
+        
+      }
+
+      return {
+        enter: enter,
+        loop:  loop,
+        exit:  exit
+      }
+    })
+
+
+
+
+    // GO!
+    // loop();
+
+
+
+
+
 
 
     // a rolling list of observed contours {centroid, bounds, mass, density, count}
@@ -319,9 +443,14 @@ var observations = [],
     timestamps   = [],
     observationi = 0;
 
-var observation_count = 500;//60*7;
+var observation_count = 600;//60*7;
 
 function initCapture(){
+
+
+  targets.forEach(function(t){
+    t.decoder = new PP.Decoder(170)
+  })
 
   // TODO - clean up for intersecting bounds (perhaps ordering by size would do?)
 
@@ -371,6 +500,8 @@ function capture(){
   ctx.drawImage(video, 0, 0);
 
 
+  var timestamp = + new Date;
+
 
 
   target_totals = target_counts.map(function(){return 0})
@@ -390,6 +521,9 @@ function capture(){
       c+=data[j]
     };
     target_totals[i] = c/data.length;
+
+
+    targets[i].decoder.add(c/data.length, timestamp);
   }
 
 
@@ -423,6 +557,7 @@ function capture(){
   // observations.set(target_totals.map(function(t,i){return t/target_counts[i]}), observationi*target_count)
 
   observations.set(target_totals, observationi*target_count)
+
 
   observationi++;
 
@@ -463,7 +598,7 @@ function renderCapture(){
 
     ctx.fillRect(
       x(obs_i),
-      y(target),
+      y(target+1),
       x(1)-x(0)+1,
       -(observations[i]/255)*y(1)-y(0)
     );
@@ -471,9 +606,6 @@ function renderCapture(){
   }
 
 }
-
-
-
 
 
 
