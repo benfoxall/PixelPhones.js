@@ -151,7 +151,6 @@
     var digits = Math.round(time/this.period);
 
     for(var i = 0; i < digits; i++){
-      console.log(lastVal)
       this.result.push(lastVal)
     }
 
@@ -165,17 +164,17 @@
   PP.Decoder = function(threshold, period){
     this.transitionDetector = new PP.Transitions(threshold);
     this.phaseDetector = new PP.PhaseDetector();
-    this.binaryDecoder = new PP.BinaryDecoder(100);// TODO - dynamic
+    this.binaryDecoder = new PP.BinaryDecoder(1000/7);// TODO - dynamic
   }
 
   PP.Decoder.prototype.add = function(value, timestamp){
     var t = this.transitionDetector.add(value, timestamp)
     if(t){
       this.phaseDetector.add(t[0], t[1])
-      console.log("detected phase", this.phaseDetector.period)
+      // console.log("detected phase", this.phaseDetector.period)
 
       this.binaryDecoder.add(t[0], t[1])
-      console.log("binary code",this.binaryDecoder.result)
+      // console.log("binary code",this.binaryDecoder.result)
     }
   }
 
