@@ -4,16 +4,70 @@
   <meta charset="utf-8">
   <title>PixelPhones.js</title>
   <link rel="stylesheet" type="text/css" href="main.css">
+  <style type="text/css">
+    .active{
+      background:#08f;
+    }
+  </style>
 </head>
 <body>
-  <h1>Recogniser <span id="state">-</span></h1>
+  <h1>Recogniser</h1>
   <video autoplay muted></video>
   <canvas></canvas>
+
+  <hr />
+  <section id="ui">
+    <button onclick="phase = 1">Start</button>
+
+    <div class="step" rv-class-active="phase1 < phase">
+      <h2>Locating Objects</h2>
+      <p>Found <strong rv-text="objects_all"></strong> objects, <strong rv-text="objects_some">_</strong> of interest</p>
+    </div>
+
+    <div class="step" rv-class-active="phase2 < phase">
+      <h2>Finding Threshold</h2>
+      <p>Threshold = <strong rv-text="threshold"></strong>         
+        (
+        <strong rv-text="threshold_min"></strong> 
+        &rarr; 
+        <strong rv-text="threshold_max"></strong>
+        )
+      </p>
+    </div>
+
+    <div class="step" rv-class-active="phase3 < phase">
+      <h2>Decoding {decode}/{decode_max}</h2>
+    </div>
+
+    <ul rv-each-marker="markers">
+      <li>
+        <h3>{ marker.centroidStr }</h3>
+        <span>{ marker.binaryStr }</span>
+      </li>
+    <ul>
+
+  </section>
+
+
+
+  <script src="rivets.js"></script>  
 
   <script src="d3.js"></script>
   <script type="text/javascript" src="cv.js"></script>
   <script type="text/javascript" src="common.js"></script>
   <script type="text/javascript">
+
+
+    var ui = {
+      // it's 1am
+      phase1: function(){return phase == 1},
+      phase2: function(){return phase == 2},
+      phase3: function(){return phase == 3},
+
+      start: function(){phase = 1}
+    }
+
+    rivets.bind(document.getElementById('ui'),ui)
 
     var stats = new Stats();
     stats.setMode(0);
@@ -103,9 +157,11 @@
 
       // exit, enter
       if(priorPhase !== phase){
-        console.log(phase)
         state(phase,'enter', state(priorPhase,'exit'))
         priorPhase = phase
+
+        // update the ui
+        ui.phase = phase;
       }
 
       // defer to the approprate function
@@ -228,8 +284,8 @@
 
 
         for (var i = 0; i < Contours.length; i++) {
-          if(Contours[i].count > 12){
-            console.log("observed marker more than 12x")
+          if(Contours[i].count > 10){
+            console.log("observed marker more than 10x")
             return true;
           }
         };
@@ -249,6 +305,9 @@
         });
 
         console.log("max count: " + maxCount + "; count threshold: " + countThresh + "; selected: " + filtered.length);
+
+        ui.objects_all  = Contours.length;
+        ui.objects_some = filtered.length;
 
         return filtered
       }
@@ -437,6 +496,10 @@
 
         console.log("setting threshold to " + threshold + "; max,min = " + max + "," + min)
 
+        ui.threshold     = threshold
+        ui.threshold_min = min
+        ui.threshold_max = max
+
         return Contours;
       }
 
@@ -468,7 +531,7 @@
           timestamps   = [],
           observationi = 0;
 
-      var observation_count = 600;//60*7;
+      var observation_count = 1000;//60*7;
 
       var completed;
 
@@ -519,6 +582,8 @@
         observationi = 0;
         observations = new Uint8ClampedArray(observation_count*(target_count+1));
 
+        ui.decode_max = observation_count;
+        ui.decode = observationi;
 
       }
 
@@ -587,16 +652,35 @@
 
         observationi++;
 
+
+        if(!(observationi%20)) ui.decode = observationi;
+
         if(observationi >= observation_count){
           stopCapture = true
           console.log("DONE CAPTURE")
           completed = true;
           renderCapture()
+
+          return true;
         }
+
+        
 
       }
 
       function exit(){
+
+        ui.markers = targets.map(function(t){
+          var b = t.decoder.binaryDecoder.result;
+          return{
+            centroid:    t.centroid,
+            centroidStr: '(' + t.centroid.map(Math.round).join(', ') + ')',
+            binary:      b,
+            binaryStr:   b.map(function(b){ return b ? '1':'0' }).join('') 
+          }
+        });
+
+        markers = targets;
         
       }
 
