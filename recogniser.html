@@ -17,7 +17,13 @@
 
   <hr />
   <section id="ui">
-    <button onclick="phase = 1">Start</button>
+    <button onclick="phase = 1">Start</button> | 
+
+    <button onclick="video.src='dev-video/office-basic.webm'">video: office basic</button> | 
+    <button onclick="video.src='dev-video/said1.webm'">video: Said 1</button> | 
+    <button onclick="gum()">video: getUserMedia</button> 
+
+    <button onclick="phase = 1">Start</button> | 
 
     <div class="step" rv-class-active="phase1 < phase">
       <h2>Locating Objects</h2>
@@ -125,16 +131,19 @@
     video.src="dev-video/office-basic.webm"
     // video.src="dev-video/said1.webm"
 
-    // navigator.getUserMedia (
-    //   {
-    //     video: {mandatory: {minWidth: 1280, minHeight: 720 }},
-    //     audio: false
-    //   },
-    //   function(localMediaStream) {
-    //      video.src = window.URL.createObjectURL(localMediaStream);
-    //   },
-    //   console.error.bind(console)
-    // );
+    function gum(){
+      navigator.getUserMedia (
+        {
+          video: {mandatory: {minWidth: 1280, minHeight: 720 }},
+          audio: false
+        },
+        function(localMediaStream) {
+           video.src = window.URL.createObjectURL(localMediaStream);
+        },
+        console.error.bind(console)
+      );
+    }
+
 
 
     /*
